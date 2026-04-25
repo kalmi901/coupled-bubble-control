@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from coupledbubble_control.models import MaterialProperties
-from coupledbubble_control.backends import BackendName, KernelVariant
+from coupledbubble_control.backends import BackendName, KernelVariant, get_current_device_name
 P0 = MaterialProperties.P0
 
 if __name__ == "__main__":
@@ -29,6 +29,7 @@ if __name__ == "__main__":
     R0[:, 1] = 5.0
     #R0[:, 2] = 6.0
     print(R0)
+    print(get_current_device_name())
     input()
 
     # Shapes (K, NUM_ENVS)

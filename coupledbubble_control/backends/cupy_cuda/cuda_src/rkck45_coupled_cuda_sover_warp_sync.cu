@@ -648,7 +648,7 @@ void rkck45_coupled_solver(
         #if NE > 0
         bool sys_event_detected = (s_event_detected[lsid] == 1);
         #else
-        bool sys_event_detected = False;
+        bool sys_event_detected = false;
         #endif
         if (valid_lane && l_active && !sys_event_detected){
             double e, r, tol;

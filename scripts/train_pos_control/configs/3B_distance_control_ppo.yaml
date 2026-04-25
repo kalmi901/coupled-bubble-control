@@ -1,0 +1,82 @@
+# Control Task: Arbitrarily control the distance between bubbles. 
+# Each episode starts with a random initial distance and randomly chosen target positions. 
+# The minimum and maximum distances are set empirically, leaving small margins at the domain edges and a separation distance between the bubbles to avoid collision. The domain is a full wavelength.
+# The frequencies and bubble sizes are fixed.
+# The observation contains 2 stacked positions at the target position per bubble. 
+# The action space allows the control of 2 pressure amplitude values in the range [0.1 bar] and 2 phase shifts between the components in the range [0, 1 \pi]. 
+# The agent is trained with PPO, and a working configuration hyperparameter is included in this config file.
+
+exp:
+  project_name: "3B_DistanceControl"
+  trial_name: "PA_PS_Control"
+  total_timesteps: 60000000
+  eval_episodes: 10000
+  num_saved_trajectories: 10000
+  log_frequency: 1
+  log_training: true
+  seed: 42
+
+stat:
+  number_of_bubbles: 3
+  equilibrium_radius: [60.0, 60.0, 60.0] # Fixed size (the environment supports fixed size recently)
+  time_step_length: 5
+  max_steps_per_episode: 128
+  initial_position: "random"
+  target_position: "random"
+  intial_distance: null            # null <--> None
+  final_distance: null
+  alignment: "center"
+  distance_range: [0.1, 0.5]       # Min distance is set empirically, max distance used to set a small margin of 0.05 lambda at the domain edges
+  dnorm: 0.25
+  apply_termination: true
+  position_tolerance: 0.05
+  positive_terminal_reward: 50
+  negative_terminal_reward: -100
+  reward_weights: [0.9, 0.1]        # Distance / intensity penalty 0
+  reward_shape_exp: 0.5           # exponent of the shaped reward function
+
+dyn:
+  number_of_harmonics: 2            # Dual frequency excitaiton
+  acoustic_field_type: "SW_N"       # Standing wave with a common node located at x=0
+  excitation_freqs: [25.0, 50.0]  
+
+actions:
+  control_amplitude: true
+  amplitude_minimum: 0.0
+  amplitude_maximum: 1.0            # 1 bar
+  control_phase: true
+  phase_minimum: 0.0
+  phase_maximum: 1.0                # 1 pi
+
+observations:
+  observe_target_position: true     # Goal
+  target_observation_minimum: -0.5  
+  target_observation_maximum:  0.5
+
+  observe_bubble_position: true
+  bubble_observation_minimum: -0.5
+  bubble_observation_maximum:  0.5
+  stacked_positions: 2              # empirically observed 2 stacked positions are appropiate to train policy (stacking eliminates the need for calculating translational velocity, where normalization could be tricky)
+
+net:
+  hidden_dims: [256, 256]          # ok for now, hpar opt later
+  activations: ["tanh", "tanh"]
+  shared_dims: 0
+
+hpar:
+  num_envs: 1024
+  envs_per_block: 16
+  rollout_steps: 16
+  num_update_epochs: 16
+  mini_batch_size: 512
+  learning_rate: 2.5e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_coef: 0.2
+  clip_vloss: true
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 2.5
+  target_kl: null
+  norm_adv: false
+  policy: "Beta"                # Used due to the bounded action space

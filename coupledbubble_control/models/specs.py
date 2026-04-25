@@ -67,7 +67,8 @@ class SolverSpec:
     lin_atol: float = 1e-9
     lin_rtol: float = 1e-9
     lin_max_iter: int = 100
-    lin_relaxation: float = 1.0
+    lin_relaxation: float = 2.0 / 3.0
+    etol: float = 1.0e-5
 
 
 # Helpers to map layour entries

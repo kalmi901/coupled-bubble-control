@@ -186,7 +186,7 @@ class PosNBC1D(BubbleVecEnv):
             trajectory_resolution: int = 4096,
             # CUDA solver specifics
             backend: BackendName = BackendName.NUMBA,
-            variant: KernelVariant = KernelVariant.SHARED,
+            variant: KernelVariant = KernelVariant.WARP,
             max_kernel_steps: int = int(1e6),
             kernel_steps: int = 2048,
             # CUDA-OPTS

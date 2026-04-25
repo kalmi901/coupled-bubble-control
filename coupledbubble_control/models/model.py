@@ -234,7 +234,7 @@ class Model:
             dense=self.buffer_ops.create_device_dense_output(self.runtime.host_buffers.dense),
             status=self.buffer_ops.create_device_status(self.runtime.host_buffers.status),
         )
-        print("ensure_buffers")
+        #print("ensure_buffers")
         return
 
 

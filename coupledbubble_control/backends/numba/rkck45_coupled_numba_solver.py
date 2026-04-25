@@ -25,7 +25,7 @@ def solver(
         print("threads", threads)
         print("blocks", blocks)
     kernel_times = [] if benchmark else None
-
+    cuda.synchronize()
     max_launches = (max_steps + kernel_steps - 1) // kernel_steps
     for launch in range(max_launches):
         if debug:
@@ -59,15 +59,30 @@ def solver(
             kernel_times.append(t1 - t0)    # type: ignore
 
         if debug:
-            print("actual_time", d_buffers.state.actual_time.copy_to_host())
-            print("time_step", d_buffers.state.time_step.copy_to_host())
+            actual_time =  d_buffers.state.actual_time.copy_to_host()
+            time_step = d_buffers.state.time_step.copy_to_host()
+            print("actual_time", actual_time)
+            print("time_step", time_step)
             dense_index = d_buffers.dense.dense_index.copy_to_host()
             actual_event = d_buffers.status.actual_event.copy_to_host()
             print("dense_index", dense_index)
             print("actual_event", actual_event)
-            print(d_buffers.status.status_flags.copy_to_host() != 0)
-            print(np.sum(d_buffers.status.status_flags.copy_to_host() == 0))
-            input()
+            flags = d_buffers.status.status_flags.copy_to_host()
+            print(flags != 0)
+            print(np.sum(flags == 0))
+            zero_idx = np.where(flags == 0)[0]
+            print(zero_idx)
+            print("actual_time_failure", np.sum(actual_time <= 1e-16))
+            print("time_step_failure", np.sum(time_step <=1e-12))
+            failed_idx = np.where(actual_time <=1e-12)
+            print(failed_idx)
+            print(actual_time[failed_idx])
+            print(time_step[failed_idx])
+            print("actual_time[zero_idx]", actual_time[zero_idx])
+            print("time_step[zero_idx]", time_step[zero_idx])
+            print(len(zero_idx))
+            #print(actual_event[zero_idx])
+            #input()
 
         if np.all(d_buffers.status.status_flags.copy_to_host() != 0):
             if debug:

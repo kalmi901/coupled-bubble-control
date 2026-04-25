@@ -62,7 +62,7 @@ def make_kernel(
     ATOL = solver_spec.atol
     RTOL = solver_spec.rtol
 
-    ETOL = 1e-6
+    ETOL = solver_spec.etol
 
     if cuda_opts is not None:
         KERNEL_KWARGS.update(cuda_opts.to_numba_kwargs())
@@ -189,12 +189,12 @@ def make_kernel(
                 s_time_step[tid]   = g_time_step[gid]     # type: ignore
 
                 s_terminated_system[tid] = int(terminated)      # type: ignore
-                g_status_flags[gtid]     = int(terminated)      # type: ignore
+                g_status_flags[gid]      = int(terminated)      # type: ignore
 
                 if NDO > 0:
                     s_dense_output_time_index[tid] = g_dense_index[gid]      # type: ignore
                     s_dense_output_time[tid]       = actual_time             # type: ignore
-                    s_dense_output_store[tid]      = 0                       # type: ignore
+                    s_dense_output_store[tid]      = -1                      # type: ignore
                     if NDO == 1:
                         s_dense_output_min_time_step[tid] = (time_end - time_begin)                # type: ignore
                     else:
@@ -207,7 +207,7 @@ def make_kernel(
                     terminated   = terminated or event_occured
                     s_actual_event_value[tid] = actual_event        # type: ignore
                     s_terminated_system[tid]  = int(terminated)     # type: ignore
-                    g_status_flags[gtid]     += int(event_occured)   # type: ignore
+                    g_status_flags[gid]      += int(event_occured)   # type: ignore
             else:
                 s_terminated_system[tid] = 1                         # type: ignore
         
@@ -692,14 +692,15 @@ def make_kernel(
 
         if tid < SPB:
             gid = bid * SPB + tid
-            g_actual_time[gid] = s_actual_time[tid]   # type: ignore
-            g_time_step[gid]   = s_time_step[tid]     # type: ignore
-            
-            if NDO > 0:
-                g_dense_index[gid] = s_dense_output_time_index[tid] # type: ignore
+            if gid < NS:
+                g_actual_time[gid] = s_actual_time[tid]   # type: ignore
+                g_time_step[gid]   = s_time_step[tid]     # type: ignore
+                
+                if NDO > 0:
+                    g_dense_index[gid] = s_dense_output_time_index[tid] # type: ignore
 
-            if NE > 0:
-                g_actual_event[gid] = s_actual_event_value[tid]     # type: ignore
+                if NE > 0:
+                    g_actual_event[gid] = s_actual_event_value[tid]     # type: ignore
 
         cuda.syncthreads()  # type: ignore
 

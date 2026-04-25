@@ -11,12 +11,12 @@ import time
 import numpy as np
 import json
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Literal, List, Union, Optional
 
 from coupledbubble_control.models import CKM1D
 from coupledbubble_control.models import MaterialProperties
-from coupledbubble_control.backends import BackendName, KernelVariant
+from coupledbubble_control.backends import BackendName, KernelVariant, get_current_device_name
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,26 @@ SCENE_DICT = {
         sweep_param="PA",
         sweep_axis=0
     ),
-
+    # DualFrequency
+    "2B_PA1_CASE2" : create_scene(
+        R0  = [[60.0], [60.0]],
+        PA  = [[0.0, 1.0], [0.2]],
+        FR  = [[25.0], [50.0]],
+        X0  = [[-0.1], [0.1+1e-6]],
+        T   = 500,
+        sweep_param="PA",
+        sweep_axis=0
+    ),
+    "2B_PA1_CASE3" : create_scene(
+        R0  = [[60.0], [60.0]],
+        PA  = [[0.0, 1.0], [0.5]],
+        FR  = [[25.0], [50.0]],
+        X0  = [[-0.1], [0.1+1e-6]],
+        T   = 500,
+        sweep_param="PA",
+        sweep_axis=0
+    ),
+    # Single Frequency (PA2=0)
     "3B_PA1_CASE1" : create_scene(
         R0  = [[60.0], [60.0], [60.0]],
         PA  = [[0.0, 1.0], [0.0]],
@@ -75,22 +94,50 @@ SCENE_DICT = {
         sweep_param="PA",
         sweep_axis=0
     ),
-
+    # Dual Frequency 
     "3B_PA1_CASE2" : create_scene(
         R0  = [[60.0], [60.0], [60.0]],
         PA  = [[0.0, 1.0], [0.2]],
         FR  = [[25.0], [50.0]],
-        X0  = [[-0.1], [1e-12], [0.1]],
+        X0  = [[-0.12], [1e-6], [0.12]],
         T   = 500,
         sweep_param="PA",
         sweep_axis=0
     ),
-
+    "3B_PA1_CASE3" : create_scene(
+        R0  = [[60.0], [60.0], [60.0]],
+        PA  = [[0.0, 1.0], [0.5]],
+        FR  = [[25.0], [50.0]],
+        X0  = [[-0.12], [1e-6], [0.12]],
+        T   = 500,
+        sweep_param="PA",
+        sweep_axis=0
+    ),
+    # Single Frequency (PA2=0)
     "4B_PA1_CASE1" : create_scene(
         R0 = [[60.0], [60.0], [60.0], [60.0]],
         PA = [[0.0, 1.0], [0.0]],
         FR = [[25.0], [50.0]],
         X0 = [[-0.2], [-0.05], [0.05], [0.2]],
+        T  = 500,
+        sweep_param="PA",
+        sweep_axis=0
+    ),
+    # Dual Frequency 
+    "4B_PA1_CASE2" : create_scene(
+        R0 = [[60.0], [60.0], [60.0], [60.0]],
+        PA = [[0.0, 1.0], [0.2]],
+        FR = [[25.0], [50.0]],
+        X0 = [[-0.4], [-0.1], [0.1+1e-6], [0.4]],
+        T  = 500,
+        sweep_param="PA",
+        sweep_axis=0
+    ),
+    "4B_PA1_CASE3" : create_scene(
+        R0 = [[60.0], [60.0], [60.0], [60.0]],
+        PA = [[0.0, 1.0], [0.5]],
+        FR = [[25.0], [50.0]],
+        X0 = [[-0.4], [-0.1], [0.1+1e-6], [0.4]],
         T  = 500,
         sweep_param="PA",
         sweep_axis=0
@@ -148,10 +195,10 @@ def build_parameter_ranges(config, scene_parameters):
 
 @dataclass
 class Config:
-    scene_id: str = "2B_PA1_CASE1"
+    scene_id: str = "4B_PA1_CASE1"
     num_systems: int = 4096
     systems_per_block: int = 32
-    backend: Literal["numba", "cupy"] = "cupy"
+    backend: Literal["numba", "cupy"] = "numba"
     variant: Literal["shared", "warp"] = "warp"
     num_dense_output: int = 4096
     main_system: int = -1
@@ -190,8 +237,9 @@ if __name__ == "__main__":
     LR = CL / (scene_parameters.FR[0].scaled[0])     # Reference length (wave-length) [m]
     REF_FREQ = scene_parameters.FR[0].values[0]
 
-    print(R0)
-    print(PA)
+    #print(R0)
+    #print(PA)
+    device = get_current_device_name()
 
     # INITIALIZE THE MODEL
     model = CKM1D(
@@ -223,11 +271,11 @@ if __name__ == "__main__":
     # RUN SIMULATIONS
     start_time = time.time()
     kernel_times = model.solve(
-                        max_steps=int(1e5),
+                        max_steps=int(1e6),
                         kernel_steps=2048,
                         sync_to_host=True,
                         benchmark=True,
-                        debug=False)
+                        debug=True)
     end_time = time.time()
     print(f"The simulation time was {end_time - start_time:0.2f} s")
 
@@ -326,7 +374,54 @@ if __name__ == "__main__":
 
         plt.show()
 
+    if config.save_results:
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        out_dir = Path(__file__).resolve().parent / "CKM1D_ParameterStudy"
+        out_dir.mkdir(parents=True, exist_ok=True)
 
+        tag = (
+            f"{config.scene_id}"
+            f"_NS_{config.num_systems}"
+            f"_SPB_{config.systems_per_block}"
+            f"_NDO_{config.num_dense_output}"
+            f"_{config.backend}_{config.variant}"
+            f"_{ts}"
+        )
+
+        npz_path  = out_dir / f"{tag}.npz"
+        meta_path = out_dir / f"{tag}.json"
+
+        np.savez_compressed(
+            npz_path,
+            dense_index = db.dense_index,
+            dense_time  = db.dense_time,
+            dense_state = db.dense_state,
+            simulation_time_s = end_time - start_time,
+            device = device
+        )
+
+        print(f"Saved: {npz_path}")
+
+        meta = {
+            "config" : {
+                "scene_id"          : config.scene_id,
+                "num_systems"       : config.num_systems,
+                "systems_per_block" : config.systems_per_block,
+                "backed"            : config.backend,
+                "variant"           : config.variant,
+                "device"            : device
+            },
+            "simulation_time_s"     : float(end_time - start_time),
+            "scene_parameters"      : asdict(scene_parameters)
+        }
+
+        meta_path.write_text(
+            json.dumps(meta, indent=2, default=str), encoding="utf-8"
+        )
+
+        print(f"Saved: {meta_path}")
 
 
 

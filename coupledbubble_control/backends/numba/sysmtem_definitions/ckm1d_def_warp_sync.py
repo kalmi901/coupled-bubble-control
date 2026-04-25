@@ -415,8 +415,8 @@ def make_model(model_spec, execution_spec, solver_spec,
 
             l_converged = (s_lin_converged[lsid] != 0)   # type: ignore
             if valid_lane and l_active and not l_converged:
-                v[0] += axv[0]  # type: ignore
-                v[1] += axv[1]  # type: ignore
+                v[0] += LIN_RELAXATION * axv[0]  # type: ignore
+                v[1] += LIN_RELAXATION * axv[1]  # type: ignore
             cuda.syncthreads()                  # type: ignore
 
             all_converged = (s_all_converged[0] >= SPB)

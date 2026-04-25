@@ -29,14 +29,12 @@ class CUDAOpts:
             self.lineinfo = True
             self.xptxas_verbose = True
             self.warn_spills = True
-            self.fastmath = False
 
         elif self.mode == "profile":
             self.debug = False
             self.lineinfo = True
             self.xptxas_verbose = True
             self.warn_spills = True
-            self.fastmath = False
 
         elif self.mode == "release":
             self.debug = False
@@ -44,7 +42,6 @@ class CUDAOpts:
             self.xptxas_verbose = False
             self.warn_spills = False
             self.fastmath = False
-            self.cache = True
 
     def to_numba_kwargs(self):
         return {

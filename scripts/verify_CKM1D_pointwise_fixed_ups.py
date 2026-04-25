@@ -12,12 +12,12 @@ import time
 import numpy as np
 import json
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Literal, List
 
 from coupledbubble_control.models import CKM1D
 from coupledbubble_control.models import MaterialProperties
-from coupledbubble_control.backends import BackendName, KernelVariant
+from coupledbubble_control.backends import BackendName, KernelVariant, get_current_device_name
 
 
 @dataclass(frozen=True)
@@ -58,7 +58,7 @@ class Config:
     scene_id: Literal["2-a", "2-b", "2-c", "2-d", "2-e", "2-f", "3-a", "3-b", "4-a", "4-b"] = "4-a"
     num_systems: int = 4096
     systems_per_block: int = 64
-    backend: Literal["numba", "cupy"] = "cupy"
+    backend: Literal["numba", "cupy"] = "numba"
     variant: Literal["shared", "warp"] = "warp"
     num_dense_output: int = 4096
     main_system: int = 0
@@ -95,6 +95,8 @@ if __name__ == "__main__":
     LR      = CL / (scene_parameters.FREQ * 1000)           # Reference length (wave-length) [m]
     REF_FREQ= scene_parameters.FREQ
 
+    device = get_current_device_name()
+
     # Initialize model
     model = CKM1D(
         num_systems = NS,
@@ -121,9 +123,9 @@ if __name__ == "__main__":
     # Update host buffers
     model.runtime.host_buffers.state.time_end[:] = scene_parameters.T
     model.runtime.host_buffers.state.actual_state[1, :, 1] = scene_parameters.D0 * 1e-6 / LR
-    print(R0)
-    print(PA)
-    print(FR)
+    #print(R0)
+    #print(PA)
+    #print(FR)
 
     # RUN SIMULATIONS
     start_time = time.time()
@@ -242,7 +244,65 @@ if __name__ == "__main__":
 
 
     if config.save_results:
-        pass
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    #print(scene_parameters)
-    #print(backend)
+        out_dir = Path(__file__).resolve().parent / "CKM1D_Pointwise"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        tag = (
+            f"{config.scene_id}"
+            f"_NS_{config.num_systems}"
+            f"_SPB_{config.systems_per_block}"
+            f"_NDO_{config.num_dense_output}"
+            f"_{config.backend}_{config.variant}"
+            f"_{ts}"
+        )
+
+        npz_path  = out_dir / f"{tag}.npz"
+        meta_path = out_dir / f"{tag}.json"
+        csv_path  = out_dir / f"{tag}.csv"
+
+        np.savez_compressed(
+            npz_path,
+            dense_index = db.dense_index,
+            dense_time  = db.dense_time,
+            dense_state = db.dense_state,
+            simulation_time_s = end_time - start_time,
+            device = device
+        )
+
+        print(f"Saved: {npz_path}")
+
+        meta = {
+            "config" : {
+                "scene_id"          : config.scene_id,
+                "num_systems"       : config.num_systems,
+                "systems_per_block" : config.systems_per_block,
+                "backed"            : config.backend,
+                "variant"           : config.variant,
+                "device"            : device
+            },
+            "simulation_time_s"     : float(end_time - start_time),
+            "scene_parameters"      : asdict(scene_parameters)
+        }
+
+        meta_path.write_text(
+            json.dumps(meta, indent=2, default=str), encoding="utf-8"
+        )
+
+        print(f"Saved: {meta_path}")
+
+        t = db.dense_time[:npts, main]
+        R_um0 = db.dense_state[:npts, 0, main, 0] * scene_parameters.R0[0]
+        R_um1 = db.dense_state[:npts, 0, main, 1] * scene_parameters.R0[1]
+        x_um0 = db.dense_state[:npts, 1, main, 0] * LR * 1e6
+        x_um1 = db.dense_state[:npts, 1, main, 1] * LR * 1e6
+
+        main_arr = np.column_stack(
+            [t, R_um0, R_um1, x_um0, x_um1]
+        )
+        header = "t_s,R0_um,R1_um,x0_um,x1_um"
+        np.savetxt(csv_path, main_arr, delimiter=",", fmt="%16.12e", header=header, comments="")
+
+        print(f"Saved: {csv_path}")

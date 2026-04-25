@@ -123,7 +123,7 @@ if __name__ == "__main__":
             low=0,
             high=5,
             n=2,
-            dtype=torch.float16,
+            dtype=torch.float32,
             num_envs=8,
             seed = 12
             )
