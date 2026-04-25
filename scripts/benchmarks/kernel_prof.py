@@ -3,10 +3,12 @@ import tyro
 import time
 import benchmark_bootstrap
 import numpy as np
+import csv
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Literal, List, Dict, Optional
 from coupledbubble_control.models import CKM1D
-from coupledbubble_control.backends import BackendName, KernelVariant
+from coupledbubble_control.backends import BackendName, KernelVariant, get_current_device_name
 from coupledbubble_control.models import MaterialProperties
 
 RandKey = Literal["R0", "PA", "FR", "X0"]
@@ -73,11 +75,21 @@ SCENE_DICT = {
     "3B_TYPICAL" : create_scene(
         R0 = [[60.0], [60.0], [60.0]],
         PA = [[0.0, 1.0], [0.0, 1.0]],
-        FR = [[25.0, 50.0]],
+        FR = [[25.0], [50.0]],
         X0 = [[-0.45, -0.2], [-0.15, 0.15], [0.2, 0.45]],
         T = 5.0,
         RAND_VALS={"PA": [0, 1],
                    "X0": [0, 1, 2]}
+    ),
+    "4B_TYPICAL" : create_scene(
+        R0 = [[60.0], [60.0], [60.0], [60.0]],
+        PA = [[0.0, 1.0], [0.0, 1.0]],
+        FR = [[25.0], [50.0]],
+        X0 = [[-0.45, -0.3], [-0.25, -0.025], 
+              [0.025, 0.25], [0.3, 0.45]],
+        T = 5.0,
+        RAND_VALS={"PA": [0, 1],
+                   "X0": [0, 1, 2, 3]}
     )
 }
 
@@ -134,22 +146,23 @@ def build_parameter_ranges(config, scene_parameters):
 
 @dataclass
 class ProfilerConfig:
-    scene_id: str = "2B_TYPICAL"
-    backend: Literal["numba", "cupy"] = "cupy"
+    scene_id: str = "4B_TYPICAL"
+    backend: Literal["numba", "cupy"] = "numba"
     variant: Literal["shared", "warp"] = "warp"
-    num_systems: int = 256
+    num_systems: int = 4096
     systems_per_block: int = 64
-    kernel_steps: int = 512
-    max_kernel_steps: int = 10000
-    seed: int = 1234
+    kernel_steps: int = 32
+    max_kernel_steps: int = 100000
+    seed: int = 11
     warm_up_steps: int = 1
     measured_steps: int = 10
     debug: bool = False
     # CUDA-OPTS
     cuda_mode: Literal["debug", "profile", "release"] = "profile"
     compiler: Literal["nvrtc", "nvcc"] = "nvrtc"
-    max_registers: int = 192
+    max_registers: int = 128
     fastmath: bool = True
+    save_file_name: Optional[str] = None
 
 @dataclass
 class StepStats:
@@ -184,7 +197,7 @@ class Summary:
         self.std_launch_time_s = all_launch_times.std() if all_launch_times.size else 0.0
 
 
-def print_header(config, scene_parameters):
+def print_header(config, scene_parameters, device):
     print("=" * 60)
     print("CKM1D Solver Benchmark")
     print("-" * 60)
@@ -195,6 +208,7 @@ def print_header(config, scene_parameters):
     print(f"Kernel steps       : {config.kernel_steps}")
     print(f"Max kernel steps   : {config.max_kernel_steps}")
     print(f"Time horizon (T)   : {scene_parameters.T}")
+    print(f"Device             : {device}")
     print("=" * 60)
     print("")
 
@@ -239,6 +253,37 @@ def print_summary(summary, sim_T):
 
     print("=" * 60)
 
+
+def append_summary(config, summary, device):
+    base_dir = Path(__file__).resolve().parent
+    out_dir = base_dir / "simu_times" / device
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = out_dir / config.save_file_name
+    exists = file_path.exists()
+
+    row = {
+        "scene_id": config.scene_id,
+        "backend": config.backend,
+        "variant": config.variant,
+        "num_systems": config.num_systems,
+        "systems_per_block": config.systems_per_block,
+        "kernel_steps": config.kernel_steps,
+        "max_registers": config.max_registers,
+        "seed": config.seed,
+        "mean_step_time_s": summary.mean_step_time_s,
+        "std_step_time_s": summary.std_step_time_s,
+        "mean_launch_time_s": summary.mean_launch_time_s,
+        "mean_launches_per_step": summary.mean_launches_per_step,
+    }
+
+    with file_path.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=row.keys())
+        if not exists:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 if __name__ == "__main__":
     config = tyro.cli(ProfilerConfig)
     if config.scene_id not in SCENE_DICT.keys():
@@ -263,10 +308,11 @@ if __name__ == "__main__":
     
     REF_FREQ = scene_parameters.FR[0].values[0]
 
-    print_header(config, scene_parameters)
-    #print("R0 \n", R0)
-    #print("X0 \n", X0)
+    device = get_current_device_name()
 
+    print_header(config, scene_parameters, device)
+    #print("R0 \n", R0[:100])
+    #print("X0 \n", X0[:100])
 
     # INITIALIZE THE MODEL
     model = CKM1D(
@@ -332,6 +378,5 @@ if __name__ == "__main__":
     summary = Summary(step_stats, end_time - start_time)
     print_summary(summary, scene_parameters.T)
 
-
-
-
+    if config.save_file_name is not None:
+        append_summary(config, summary, device)
