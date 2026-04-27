@@ -5,7 +5,9 @@ import tyro
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field, asdict, is_dataclass, fields
-from typing import LiteralString, List, Dict, Annotated, Optional, Sequence, Literal, Any
+from typing import LiteralString, List, Dict, Annotated, Optional, Sequence, Literal, Any, Union
+from typing import get_type_hints, get_origin, get_args
+import types
 
 from coupledbubble_control.rl import PPO
 from coupledbubble_control.envs import PosNBC1D
@@ -97,7 +99,7 @@ def _pop_flag(argv: list[str], *names: str) -> Optional[str]:
             return val
     return None
 
-def _from_yaml_dataclass(cls, data: dict):
+def _from_yaml_dataclass_old(cls, data: dict):
     """
     Rekurzívan felépít egy dataclass-t egy YAML-ból beolvasott dict-ből.
     """
@@ -116,6 +118,57 @@ def _from_yaml_dataclass(cls, data: dict):
     return cls(**kwargs)
 
 
+def _unwrap_optional(tp):
+    origin = get_origin(tp)
+
+    if origin is Union or origin is types.UnionType:
+        args = [a for a in get_args(tp) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+
+    return tp
+
+
+def _from_yaml_value(tp, val):
+    tp = _unwrap_optional(tp)
+    origin = get_origin(tp)
+
+    # nested dataclass
+    if is_dataclass(tp) and isinstance(val, dict):
+        return _from_yaml_dataclass(tp, val)
+
+    # list[...] mezők
+    if origin is list and isinstance(val, list):
+        args = get_args(tp)
+        item_type = args[0] if args else object
+        return [_from_yaml_value(item_type, item) for item in val]
+
+    # tuple[...] mezők, ha vannak
+    if origin is tuple and isinstance(val, list):
+        args = get_args(tp)
+        if len(args) == 2 and args[1] is Ellipsis:
+            return tuple(_from_yaml_value(args[0], item) for item in val)
+        return tuple(
+            _from_yaml_value(item_type, item)
+            for item_type, item in zip(args, val)
+        )
+
+    return val
+
+
+def _from_yaml_dataclass(cls, data: dict):
+    type_hints = get_type_hints(cls)
+    kwargs = {}
+
+    for f in fields(cls):
+        if f.name not in data:
+            continue
+
+        field_type = type_hints.get(f.name, f.type)
+        kwargs[f.name] = _from_yaml_value(field_type, data[f.name])
+
+    return cls(**kwargs)
+
 def parse_config(argv: Optional[Sequence[str]] = None) -> Config:
     if argv is None:
         argv = sys.argv[1:]
@@ -133,7 +186,6 @@ def parse_config(argv: Optional[Sequence[str]] = None) -> Config:
         yaml_path = Path(__file__).resolve().parent / "configs" / yaml_name
         print(yaml_path)
         #yaml_path = os.path.join(PROJECT_DIR, "configs", yaml_name)
-        print()
         try:
             with open(yaml_path, "r") as f:
                 yaml_data = yaml.safe_load(f) or {}
@@ -150,7 +202,87 @@ def parse_config(argv: Optional[Sequence[str]] = None) -> Config:
     return tyro.cli(Config, args=argv)
 
 
+def make_envs(config, 
+              collect_trajectories: bool = False,
+              trial_name: str = "Baseline",
+              device: str = "cuda") -> PosNBC1D:
+    
+    num_bubbles = config.stat.number_of_bubbles
+    num_harmonics = config.dyn.number_of_harmonics
+    trajectory_resolution = config.exp.trajectory_resolution if collect_trajectories else 0
+
+    return PosNBC1D(
+        num_bubbles=num_bubbles,
+        num_envs=config.hpar.num_envs,
+        envs_per_block=config.hpar.envs_per_block,
+        # Action & Observation Spaces
+        action_space_schema=config.actions.get_space(num_harmonics),
+        observation_space_schema=config.observations.get_space(num_bubbles),
+        # Physical Parameters
+        R0=config.stat.equilibrium_radius,
+        PA=config.dyn.pressure_amps,
+        FR=config.dyn.excitation_freqs,
+        PS=config.dyn.phase_shift,
+        # Acoustic Field
+        num_components=num_harmonics,
+        acoustic_field=config.dyn.acoustic_field_type,
+        # Static Features / Scene Setup
+        episode_length=config.stat.max_steps_per_episode,
+        time_step_length=config.stat.time_step_length,
+        initial_position=config.stat.initial_position,
+        initial_distance=config.stat.initial_distance,
+        target_position=config.stat.target_position,
+        target_distance=config.stat.final_distance,
+        alignment=config.stat.alignment,
+        min_distance=min(config.stat.distance_range),
+        max_distance=max(config.stat.distance_range),
+        # Static Features / Reward Properties
+        dnorm=config.stat.dnorm,
+        apply_termination=config.stat.apply_termination,
+        position_tolerance=config.stat.position_tolerance,
+        positive_terminal_reward=config.stat.positive_terminal_reward,
+        negative_terminal_reward=config.stat.negative_terminal_reward,
+        rewards_weights=config.stat.reward_weights,
+        reward_exp=config.stat.reward_shape_exp,
+        # Experiement Properties
+        seed=config.exp.seed,
+        collect_trajectories=collect_trajectories,
+        trajectory_resolution=trajectory_resolution,
+        # CUDA-backed-ops
+        backend=config.cuda_opts.backend,
+        variant=config.cuda_opts.variant,
+        max_kernel_steps=config.cuda_opts.max_kernel_steps,
+        kernel_steps=config.cuda_opts.kernel_steps,
+        compiler=config.cuda_opts.cupy_compiler,
+        max_registers=config.cuda_opts.max_registers,
+        cuda_mode="release",
+        device=device
+    )
+
+
+def preview(config):
+    config.exp.render_env = True
+    venvs = make_envs(config, False, "Preview")
+    venvs.reset()
+
+    try:
+        for _ in range(200):
+            obs, rew, term, trunc, info = venvs.step()
+            input()
+    except KeyboardInterrupt:
+        print("Simulation terminated by the user")
+
 
 if __name__ == "__main__":
     config = parse_config()
     print(config)
+
+    if config.runmode in ["train", "eval"]:
+        pass
+
+    elif config.runmode == "preview":
+        preview(config)
+    else:
+        print("Unknown runmode")
+
+

@@ -207,7 +207,8 @@ def make_kernel(
                     terminated   = terminated or event_occured
                     s_actual_event_value[tid] = actual_event        # type: ignore
                     s_terminated_system[tid]  = int(terminated)     # type: ignore
-                    g_status_flags[gid]      += int(event_occured)   # type: ignore
+                    if event_occured:
+                        g_status_flags[gid]       = EVENT_TERMINAL      # type: ignore
             else:
                 s_terminated_system[tid] = 1                         # type: ignore
         

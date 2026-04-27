@@ -28,8 +28,8 @@ def solver(
     cuda.synchronize()
     max_launches = (max_steps + kernel_steps - 1) // kernel_steps
     for launch in range(max_launches):
-        if debug:
-            print("iter-nb", launch+1)
+        #if debug:
+        print("iter-nb", launch+1)
 
         t0 = time.time()
         kernel[blocks, threads](
@@ -68,6 +68,7 @@ def solver(
             print("dense_index", dense_index)
             print("actual_event", actual_event)
             flags = d_buffers.status.status_flags.copy_to_host()
+            print(flags)
             print(flags != 0)
             print(np.sum(flags == 0))
             zero_idx = np.where(flags == 0)[0]
@@ -82,7 +83,7 @@ def solver(
             print("time_step[zero_idx]", time_step[zero_idx])
             print(len(zero_idx))
             #print(actual_event[zero_idx])
-            #input()
+            input()
 
         if np.all(d_buffers.status.status_flags.copy_to_host() != 0):
             if debug:

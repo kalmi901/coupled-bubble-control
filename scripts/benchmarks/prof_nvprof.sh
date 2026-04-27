@@ -25,7 +25,7 @@ mkdir -p "$OUT_DIR"
 # ---- METRIC PASSES ----
 # Forma: "tag metric1,metric2,..."
 PASSES=(
-  "occ sm_efficiency,achieved_occupancy,eligible_warps_per_cycle,ipc,issued_ipc,issue_slot_utilization"
+  "occ sm_efficiency,branch_efficiency,achieved_occupancy,eligible_warps_per_cycle,ipc,issued_ipc,issue_slot_utilization"
   "mem gld_throughput,gst_throughput,dram_read_throughput,dram_write_throughput,shared_load_transactions,shared_store_transactions,shared_efficiency,shared_utilization,local_load_transactions,local_store_transactions,ldst_issued,ldst_executed,l2_read_transactions,l2_write_transactions"
   "stall stall_inst_fetch,stall_exec_dependency,stall_memory_dependency,stall_sync,stall_other,stall_memory_throttle"
   "flop flop_sp_efficiency,flop_dp_efficiency,inst_fp_32,inst_fp_64,flop_count_hp_add,flop_count_hp_mul,flop_count_hp_fma"

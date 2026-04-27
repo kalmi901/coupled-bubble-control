@@ -33,6 +33,7 @@ from .common.specs import (
 
 from .common.buffers import ObservationBufferContainer
 from .common.interop import create_view
+from .common.trajectory_buffer import TrajectorBuffer
 from .bubble_vec_env import BubbleVecEnv
 
 
@@ -91,9 +92,21 @@ class SceneGenerator:
 
         # -- Random Generator --
         self._seed = seed
-        self._generator = torch.Generator()
-        if self._seed is not None:
-            self._generator.manual_seed(self._seed)
+        self._generators = {}
+
+    def _get_generator(self, device):
+        device = torch.device(device)
+        key = str(device)
+
+        if key not in self._generators:
+            gen = torch.Generator(device=device)
+
+            if self._seed is not None:
+                gen.manual_seed(self._seed)
+
+            self._generators[key] = gen
+
+        return self._generators[key]
 
 
     def generate_new_scenes(
@@ -102,31 +115,131 @@ class SceneGenerator:
             dtype: torch.dtype = torch.float32,
             device: str = "cpu",
             ) -> Tuple[torch.Tensor, ...]:
-        pass
+        
         # 1) Generate bubble positions
         if self.initial_position == "random":
-            pass
+            bubble_positions = self._random_uniform_position_1D(num_scenes, dtype, device)
         elif self.initial_position == "equidistant":
-            pass
+            bubble_positions = self._equidistant_position_1D(self.initial_distance, num_scenes, dtype, device)
         else:
             bubble_positions = self._expand_positions_1D(self.initial_position, num_scenes, dtype, device)
-        # 2) Generate new target positions
+            self._random_uniform_position_1D(num_scenes, dtype, device)
 
+        # 2) Generate new target positions
         if self.target_position == "random":
-            pass
+            target_positions = self._random_uniform_position_1D(num_scenes, dtype, device)
         elif self.target_position == "equidistant":
-            pass
+            target_positions = self._equidistant_position_1D(self.initial_distance, num_scenes, dtype, device)
         else:
             target_positions = self._expand_positions_1D(self.target_position, num_scenes, dtype, device)
 
         return bubble_positions, target_positions
 
     # -- Scene Generator Methods --
-    def _equidistant_position_1D(self):
-        pass
+    def _equidistant_position_1D(self, distance, num_scenes, dtype, device):
+        lo, hi = self.domain_min+self.margin, self.domain_max-self.margin
+        if distance is None:
+            # If no initial distance is provided, bubbles are distributed evenly across the domain.
+            temp_pos = torch.linspace(lo, hi, self.num_bubbles, dtype=dtype, device=device)
+            gap = temp_pos[1] - temp_pos[0]
+            if gap < self.min_distance:
+                raise ValueError(f"Cannot fit: The gaps between bubbles are {gap:.3f}, minimal gap is {self.min_distance:.2f} ")
+            if gap > self.max_distance:
+                raise ValueError(f"Cannot fit: The gaps between bubbles are {gap:.3f}, maximum gap is {self.max_distance:.2f} ")
+            
+            offset = torch.zeros((num_scenes, 1), dtype=dtype, device=device)
 
-    def _random_uniform_position_1D(self):
-        pass
+        elif type(distance) in [float, int]:
+            # If an initial distance is specified, bubbles are placed with this fixed spacing between consecutive bubbles
+            available_domain = hi - lo
+            span_domain = (self.num_bubbles - 1) * distance
+            if span_domain > available_domain:
+                raise ValueError(f"Cannot fit: The scene requires min length of {span_domain:.2f}, available domain length is {available_domain:.2f}.")
+            temp_pos = torch.arange(
+                            self.num_bubbles, 
+                            dtype=dtype,
+                            device=device) * distance
+            if self.alignment == "center":
+                offset = torch.full(
+                            (num_scenes, 1),
+                            (lo + hi - span_domain) * 0.5,
+                            dtype=dtype,
+                            device=device)
+            elif self.alignment == "random":
+                max_start = hi - span_domain
+                genenrator = self._get_generator(device)
+                offset = lo + torch.rand(
+                            (num_scenes, 1),
+                            dtype=dtype,
+                            device=device,
+                            generator=genenrator
+                        ) * (max_start - lo)
+            else:
+                raise ValueError("alignment must be: 'lower' | 'random'.")
+                
+        pos = temp_pos.unsqueeze(0) + offset
+        return pos
+
+    def _random_uniform_position_1D(self, num_scenes, dtype, device):
+        lo, hi = self.domain_min+self.margin, self.domain_max-self.margin
+        available_domain = hi - lo
+        num_gaps = self.num_bubbles - 1
+        min_required_domain = num_gaps * self.min_distance
+
+        if min_required_domain > available_domain:
+            raise ValueError(f"Cannot fit: The scene requires min length of {min_required_domain:.2f}, domain length is {available_domain:.2f}.")
+
+        # Sample random extra spacing for each gap, then scale it if needed so that
+        # all bubbles remain inside the available domain.
+        # room \in [min_distance, max_distance]  --> dx_min < dx < dx_max
+        room_per_gap = self.max_distance - self.min_distance
+        extra_gap_limit = available_domain - min_required_domain    # Max offset
+        generator = self._get_generator(device)
+
+        # 1) extras_raw ~ U(0, room_per_gap)
+        extras_raw = torch.rand(
+                    (num_scenes, num_gaps), 
+                    dtype=dtype,
+                    device=device,
+                    generator=generator) * room_per_gap
+        
+        # 2) Scale
+        s = extras_raw.sum(dim=1)
+        denom = torch.clamp(s, min=1e-12)
+        scale = (extra_gap_limit / denom).clamp(max=1.0)
+        extras = extras_raw * scale.unsqueeze(-1)
+
+        # 3) Real gaps
+        gaps = extras + self.min_distance
+        remaining = available_domain - gaps.sum(dim=1)    # (num_scenes, )
+
+        # 4) Choose the anchor position according to the requested alignment.
+        if self.alignment == "center":
+            offset = lo + (0.5 * remaining).unsqueeze(-1)
+        elif self.alignment == "random":
+            offset = lo + torch.rand(
+                            (num_scenes, 1),
+                            dtype=dtype,
+                            device=device,
+                            generator=generator
+                    ) * remaining.unsqueeze(-1)
+        else:
+            raise ValueError("alignment must be: 'center' | 'random'.")
+                
+        # 5) Cumulative sums
+        cumsum = torch.cumsum(gaps, dim=1)  # (num_envs, num_gaps)
+        #print("cumsum\n", cumsum)
+        #print("offset\n", offset)
+
+        # 6) Concatenate the positions
+        pos = torch.cat([offset, offset+cumsum], dim=1)
+
+        #pos.clamp_(min=lo, max=hi)
+        assert torch.all(pos >= lo - 1e-6)
+        assert torch.all(pos <= hi + 1e-6)
+        #print("pos\n", pos)
+
+        return pos
 
     def _expand_positions_1D(self, position, num_scenes, dtype, device):
         positions = torch.tile(
@@ -170,7 +283,7 @@ class PosNBC1D(BubbleVecEnv):
             target_distance: Optional[float] = None,
             alignment: Literal["center", "random"] = "center",
             min_distance: float = 0.05,
-            max_distance: float = 0.1,
+            max_distance: float = 0.9,
             margin: float = 0.05,
             # Reward properties
             dnorm: float = 0.2,
@@ -183,7 +296,8 @@ class PosNBC1D(BubbleVecEnv):
             # Render & Trajectory buffer properties
             render_env: bool = False,
             collect_trajectories: bool = True,
-            trajectory_resolution: int = 4096,
+            trajectory_resolution: int = 128,
+            trajectory_buffer_store: str = "PosNBC1D",
             # CUDA solver specifics
             backend: BackendName = BackendName.NUMBA,
             variant: KernelVariant = KernelVariant.WARP,
@@ -304,7 +418,7 @@ class PosNBC1D(BubbleVecEnv):
         )
 
         self.solver_kwargs = {
-                "debug"            : True,
+                "debug"            : False,
                 "max_steps"        : max_kernel_steps,
                 "kernel_steps"     : kernel_steps
             }
@@ -359,7 +473,31 @@ class PosNBC1D(BubbleVecEnv):
         
         # -- Render & Trajector buffer properties
         self._render_env = render_env
-        self.trajectory_buffer = None   # TODO: implement a trajectory buffer!
+        self._collect_trajectories = collect_trajectories
+        # TODO: general metadata!!
+        self.trajectory_buffer = TrajectorBuffer(
+            num_envs=self.num_envs,
+            num_units=self.num_bubbles,
+            saved_states=[0, 1],
+            zarr_root=trajectory_buffer_store,
+            metadata={
+                "num_bubbles"   : self.num_bubbles,
+                "ac_type"       : acoustic_field,
+                "k"             : num_components,
+                "PA_max"        : self.action_space_schema.components[0].max,
+                "PA_min"        : self.action_space_schema.components[0].min,
+                "PS_max"        : self.action_space_schema.components[1].max,
+                "PS_min"        : self.action_space_schema.components[1].max,
+                "freq"          : self.default_FR,
+                "ref_freq"      : self.REF_FREQ,
+                "XT_max"        : self.observation_space_schema.components[0].max,
+                "XT_min"        : self.observation_space_schema.components[0].min,
+                "X_max"         : self.observation_space_schema.components[1].max,
+                "X_min"         : self.observation_space_schema.components[1].max,
+                "position_tolerance" : self.position_tolerance,
+                "time_step_length" : self.time_step_length
+            }
+        ) if self._collect_trajectories else None
 
     @torch.no_grad()
     def step(self, action: Optional[torch.Tensor] = None, clone: bool = False):
@@ -373,8 +511,15 @@ class PosNBC1D(BubbleVecEnv):
         self.get_rewards()
         self.advance_time()
         if self.trajectory_buffer is not None:
-            # TODO trajector_buffer step
-            pass
+            self.trajectory_buffer.step(
+                self._observations,
+                self._actions,
+                self._rewards,
+                self._interop["dense_index"],
+                self._interop["dense_time"],
+                self._interop["dense_state"]
+            )
+            
         if self._render_env:
             self.render()
         info = self.final_termination()
@@ -439,8 +584,8 @@ class PosNBC1D(BubbleVecEnv):
         """
         Reset Terminated envs and counters. Device values are set via interop
         """
-        print("reset-us-please\n", env_ids)
-        input()
+        #print("reset-us-please\n", env_ids)
+        #input()
         bubble_positions, \
         target_positions \
             = self.scene_generator.generate_new_scenes(
@@ -563,11 +708,17 @@ class PosNBC1D(BubbleVecEnv):
     def _build_interop_views(self):
         db = self.model.runtime.device_buffers
         self._interop = {
+            "time_step"         : create_view(db.state.time_step, "time_step"),
             "actual_time"       : create_view(db.state.actual_time, "actual_time"),
             "actual_state"      : create_view(db.state.actual_state, "actual_state"),
             "control_params"    : create_view(db.params.control_params, "control_params"),
             "status_flags"      : create_view(db.status.status_flags, "status_flags")
         }
+
+        if self._collect_trajectories:
+            self._interop["dense_state"] = create_view(db.dense.dense_state, "dense_state")
+            self._interop["dense_time"]  = create_view(db.dense.dense_time, "dense_time")
+            self._interop["dense_index"] = create_view(db.dense.dense_index, "dense_index")
 
     @torch.no_grad()
     def _get_observation(self):
@@ -663,6 +814,7 @@ class PosNBC1D(BubbleVecEnv):
     @torch.no_grad()
     def advance_time(self):
         self._interop["actual_time"].zero_()
+        self._interop["time_step"].fill_(1e-6)
         self.algo_steps += 1
 
         self._time_outs = self.algo_steps >= self.episode_length
@@ -676,7 +828,8 @@ class PosNBC1D(BubbleVecEnv):
     def final_termination(self):
         info = {}
         done_env_idx = torch.nonzero(self._time_outs | self._terminateds).flatten()
-        if done_env_idx.numel() > 0:
+        num_done_envs = done_env_idx.numel()
+        if num_done_envs > 0:
             info = {
                 "final_observation" : self._observations[done_env_idx].clone(),
                 "dones"             : done_env_idx,
@@ -685,8 +838,13 @@ class PosNBC1D(BubbleVecEnv):
             }
 
             if self.trajectory_buffer is not None:
-                # TODO: trja buffer termination
-                pass
+                self.trajectory_buffer.end_episode(
+                    done_env_idx,
+                    info["final_observation"],
+                    info["episode_length"],
+                    info["episode_return"],
+                    np.tile(self.default_R0, (num_done_envs, 1))
+                )
 
             self.reset_envs(done_env_idx)
 

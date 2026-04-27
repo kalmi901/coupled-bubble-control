@@ -20,6 +20,9 @@ class CUDAOpts:
     variant: Literal["shared", "warp"] = "warp"
     cuda_mode: Literal["release"] = "release"
     max_registers: int = 192
+    kernel_steps: int = 4096
+    max_kernel_steps: int = int(1e6)
+    cupy_compiler: Literal["nvrtc", "nvcc"] = "nvrtc"
 
 @dataclass
 class Experiment:
@@ -29,6 +32,7 @@ class Experiment:
     total_timesteps: int = int(5e6)
     eval_episodes: int = int(1e4)
     num_saved_trajectories: int = int(5e3)
+    trajectory_resolution: int = 128
     log_frequency: int = 1
     seed: int = 42
     log_training: bool = False

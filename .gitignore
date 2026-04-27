@@ -5,3 +5,5 @@
 *nvvp
 *json
 *npz
+*.zarr/*
+*.zarr

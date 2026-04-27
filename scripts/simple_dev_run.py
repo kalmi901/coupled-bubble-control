@@ -16,8 +16,8 @@ if __name__ == "__main__":
     NK = 1
     AC = "CONST"
     NDO = 4096
-    BACKEND = BackendName.CUPY
-    VARIANT = KernelVariant.SHARED
+    BACKEND = BackendName.NUMBA
+    VARIANT = KernelVariant.WARP
 
     R0 = np.repeat(
         np.linspace(10, 100, NS, endpoint=True, dtype=np.float64),
@@ -64,7 +64,7 @@ if __name__ == "__main__":
         backend = BACKEND,
         variant = VARIANT,
         # CUDA-OPTS
-        cuda_mode = "debug",
+        cuda_mode = "release",
         compiler = "nvrtc",
         max_registers = 128,
         fastmath = True
