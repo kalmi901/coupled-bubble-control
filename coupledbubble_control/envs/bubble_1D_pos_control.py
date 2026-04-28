@@ -712,7 +712,8 @@ class PosNBC1D(BubbleVecEnv):
             "actual_time"       : create_view(db.state.actual_time, "actual_time"),
             "actual_state"      : create_view(db.state.actual_state, "actual_state"),
             "control_params"    : create_view(db.params.control_params, "control_params"),
-            "status_flags"      : create_view(db.status.status_flags, "status_flags")
+            "status_flags"      : create_view(db.status.status_flags, "status_flags"),
+            "actual_event"      : create_view(db.status.actual_event, "actual_event")
         }
 
         if self._collect_trajectories:
@@ -815,6 +816,7 @@ class PosNBC1D(BubbleVecEnv):
     def advance_time(self):
         self._interop["actual_time"].zero_()
         self._interop["time_step"].fill_(1e-6)
+        self._interop["actual_event"].fill_(-1.0)
         self.algo_steps += 1
 
         self._time_outs = self.algo_steps >= self.episode_length

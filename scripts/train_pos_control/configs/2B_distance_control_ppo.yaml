@@ -11,7 +11,7 @@ exp:
   trial_name: "PA_PS_Control"
   total_timesteps: 30000000
   eval_episodes: 10000
-  num_saved_trajectories: 10000
+  num_saved_trajectories: 2000
   log_frequency: 1
   log_training: true
   seed: 42

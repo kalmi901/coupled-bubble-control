@@ -164,6 +164,7 @@ class TrajectoryZarrWriter:
         
         self.root_dir = Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
+        print("Trajectory Dir", self.root_dir)
         self.shard_size = shard_size
         self.global_metadata: Dict = global_metadata if global_metadata is not None else {}
         self._write_global_metadata()

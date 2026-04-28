@@ -8,6 +8,8 @@ from dataclasses import dataclass, field, asdict, is_dataclass, fields
 from typing import LiteralString, List, Dict, Annotated, Optional, Sequence, Literal, Any, Union
 from typing import get_type_hints, get_origin, get_args
 import types
+import time
+import traceback
 
 from coupledbubble_control.rl import PPO
 from coupledbubble_control.envs import PosNBC1D
@@ -17,7 +19,7 @@ from experiment_config import *
 @dataclass
 class Hyperparameters:
     """Hyperparameters of PPO algorithm"""
-    num_envs: int = 1024
+    num_envs: int = 16
     envs_per_block: int = 16
     rollout_steps: int = 16
     num_update_epochs: int = 16
@@ -64,7 +66,7 @@ class NetArch:
 
 @dataclass
 class Config:
-    runmode: Literal["train", "preview", "eval"] = "preview"
+    runmode: Literal["train", "preview", "eval", "sample"] = "preview"
     model_name: Optional[str] = None
     exp: Experiment = field(default_factory= lambda: Experiment(
         trial_name = f"PPO_PA_PS_COUPLED_SYSTEM_CONTROL",
@@ -204,7 +206,7 @@ def parse_config(argv: Optional[Sequence[str]] = None) -> Config:
 
 def make_envs(config, 
               collect_trajectories: bool = False,
-              trial_name: str = "Baseline",
+              trajectory_dir: str = "./",
               device: str = "cuda") -> PosNBC1D:
     
     num_bubbles = config.stat.number_of_bubbles
@@ -248,6 +250,8 @@ def make_envs(config,
         seed=config.exp.seed,
         collect_trajectories=collect_trajectories,
         trajectory_resolution=trajectory_resolution,
+        trajectory_buffer_store=str(trajectory_dir),
+        render_env=config.exp.render_env,
         # CUDA-backed-ops
         backend=config.cuda_opts.backend,
         variant=config.cuda_opts.variant,
@@ -260,25 +264,181 @@ def make_envs(config,
     )
 
 
+def make_model(config, venvs, model_dir):
+    model = PPO(
+        venvs=venvs,
+        learning_rate=config.hpar.learning_rate,
+        gamma=config.hpar.gamma,
+        gae_lambda=config.hpar.gae_lambda,
+        mini_batch_size=config.hpar.mini_batch_size,
+        clip_coef=config.hpar.clip_coef,
+        clip_vloss=config.hpar.clip_vloss,
+        ent_coef=config.hpar.ent_coef,
+        vf_coef=config.hpar.vf_coef,
+        max_grad_norm=config.hpar.max_grad_norm,
+        target_kl=config.hpar.target_kl,
+        norm_adv=config.hpar.norm_adv,
+        rollout_steps=config.hpar.rollout_steps,
+        num_update_epochs=config.hpar.num_update_epochs,
+        cuda=True,
+        torch_deterministic=True,
+        seed=config.exp.seed,
+        net_archs=config.net.to_dict(),
+        policy_type=config.hpar.policy
+    )
+
+    if config.model_name is not None:
+        model.load_model(config.model_name, model_dir)
+
+    return model
+
 def preview(config):
+    print("Environment simulation preview")
     config.exp.render_env = True
     venvs = make_envs(config, False, "Preview")
     venvs.reset()
 
     try:
-        for _ in range(200):
+        for _ in range(20000):
             obs, rew, term, trunc, info = venvs.step()
-            input()
+            #input()
     except KeyboardInterrupt:
         print("Simulation terminated by the user")
 
+
+def train(config):
+    trial_name = config.exp.trial_name + \
+        f"_b{config.stat.number_of_bubbles:d}_epb{config.hpar.envs_per_block}_ne{config.hpar.num_envs}_id{int(time.time())}"
+    root_dir  = Path(__file__).resolve().parent
+    model_dir = root_dir / "models"
+    metrics_dir = root_dir / "metrics"
+
+    train_venvs = make_envs(
+        config,
+        collect_trajectories=False,
+        device="cuda"
+    )
+
+    model = make_model(config, train_venvs, model_dir)
+
+    learn_kwargs = {}
+    config.exp.log_training = True
+    if config.exp.log_training:
+        run_dir = root_dir / "runs" / config.exp.project_name
+        run_dir.mkdir(exist_ok=True, parents=True)
+
+        learn_kwargs.update(
+            dict(
+                log_dir=str(run_dir),
+                project_name=config.exp.project_name,
+                trial_name=trial_name,
+                log_frequency=config.exp.log_frequency
+            )
+        )
+
+    save_model = False
+    try:
+        model.learn(config.exp.total_timesteps, **learn_kwargs)
+        save_model = True
+
+    except KeyboardInterrupt:
+        print("Training interrupted by user.")
+        try:
+            answer = input("Do you want to save the model? [y/N]: ").strip().lower()
+            save_model = answer in ("y", "yes")
+        except EOFError:
+            # pl. ha nincs stdin (pl. notebook / pipe)
+            print("No input available, skipping save.")
+            save_model = False
+    except Exception:
+        print("Error during training:")
+        traceback.print_exc()
+        raise
+    finally:
+        if save_model:
+            model.save_model(trial_name, model_dir)
+
+    if save_model:
+        # Collect Statistics for saved model
+        try:
+            model.predict(
+                total_episodes=config.exp.eval_episodes,
+                metrics_dir=metrics_dir,
+                metrics_fname=trial_name)
+        except KeyboardInterrupt:
+            print("Evaluation interrupted by user.")
+
+
+def eval(config):
+    if config.model_name is not None:
+        trial_name = config.model_name
+    else:
+        trial_name = config.exp.trial_name + \
+            f"_b{config.stat.number_of_bubbles:d}_epb{config.hpar.envs_per_block}_ne{config.hpar.num_envs}_id{int(time.time())}"
+    root_dir  = Path(__file__).resolve().parent
+    model_dir = root_dir / "models"
+    metrics_dir = root_dir / "metrics"
+
+    eval_venvs = make_envs(
+        config,
+        collect_trajectories=False,
+        device="cuda"
+    )
+
+    model = make_model(config, eval_venvs, model_dir)
+
+    try:
+        model.predict(
+            total_episodes=config.exp.eval_episodes,
+            metrics_dir=metrics_dir,
+            metrics_fname=trial_name)
+    except KeyboardInterrupt:
+        print("Evaluation interrupted by user.")
+
+
+def sample_trj(config):
+    if config.model_name is not None:
+        trial_name = config.model_name
+    else:
+        trial_name = config.exp.trial_name + \
+            f"_b{config.stat.number_of_bubbles:d}_epb{config.hpar.envs_per_block}_ne{config.hpar.num_envs}_id{int(time.time())}"
+    root_dir  = Path(__file__).resolve().parent
+    model_dir = root_dir / "models"
+    trj_dir   = root_dir.parents[2] / "trj" / config.exp.project_name / trial_name
+
+    print(trj_dir)
+    input()
+
+    eval_venvs = make_envs(
+        config,
+        collect_trajectories=True,
+        trajectory_dir=trj_dir,
+        device="cuda"
+    )
+
+    model = make_model(config, eval_venvs, model_dir)
+
+    try:
+        model.predict(
+            total_episodes=config.exp.num_saved_trajectories)
+    except KeyboardInterrupt:
+        print("Trajectory sampling interrupted by user.") 
 
 if __name__ == "__main__":
     config = parse_config()
     print(config)
 
-    if config.runmode in ["train", "eval"]:
-        pass
+    if config.runmode == "train":
+        # Train and evaluate
+        train(config)
+
+    elif config.runmode == "eval":
+        # Evaluate training performance
+        eval(config)
+
+    elif config.runmode == "sample":
+        # Sample Random trajectories
+        sample_trj(config)
 
     elif config.runmode == "preview":
         preview(config)

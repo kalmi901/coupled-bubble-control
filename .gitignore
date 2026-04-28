@@ -7,3 +7,5 @@
 *npz
 *.zarr/*
 *.zarr
+*.th
+**/runs/*

@@ -125,7 +125,7 @@ class ActorCriticBetaPolicy(nn.Module):
             self.features = build_network(s_dims, s_acts)
 
         self.pi = build_network(dims[shared_dims:], acts[shared_dims:])        # Policy Network
-        self.vf = build_network(dims[shared_dims:], acts[shared_dims:])        # Value Network
+        self.vf = build_network(dims[shared_dims:-1]+[1], acts[shared_dims:])        # Value Network
 
     
     def value(self, x: torch.Tensor) -> torch.Tensor:

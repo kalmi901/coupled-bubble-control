@@ -11,7 +11,7 @@ class RolloutBuffer:
             single_observation_space_shape: Tuple,
             single_action_space_shape: Tuple,
             device: str,
-            dtype: torch.dtype = torch.float64
+            dtype: torch.dtype = torch.float32
     ) -> None:
         
         self.num_envs = num_envs
@@ -30,7 +30,7 @@ class RolloutBuffer:
         self.advantages   = torch.zeros((rollout_steps, num_envs), dtype=self.dtype, device=self.device)
         self.returns      = torch.zeros((rollout_steps, num_envs), dtype=self.dtype, device=self.device)
 
-    def store_transtitions(
+    def store_transitions(
             self,
             step: int,
             observations: torch.Tensor,
