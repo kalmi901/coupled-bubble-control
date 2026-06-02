@@ -26,10 +26,10 @@ stat:
   intial_distance: null            # null <--> None
   final_distance: null
   alignment: "center"
-  distance_range: [0.10, 0.5]       # Min distance is set empirically, max distance used to set a small margin of 0.05 lambda at the domain edges
-  dnorm: 0.25
+  distance_range: [0.15, 0.5]       # Min distance is set empirically, max distance used to set a small margin of 0.05 lambda at the domain edges
+  dnorm: 0.10
   apply_termination: true
-  position_tolerance: 0.02
+  position_tolerance: 0.05
   positive_terminal_reward: 50
   negative_terminal_reward: -100
   reward_weights: [0.9, 0.1]        # Distance / intensity penalty 0
@@ -64,9 +64,9 @@ net:
   shared_dims: 0
 
 hpar:
-  num_envs: 1024
+  num_envs: 4096
   envs_per_block: 16
-  rollout_steps: 16
+  rollout_steps: 8
   num_update_epochs: 16
   mini_batch_size: 512
   learning_rate: 2.5e-4

@@ -5,7 +5,7 @@ import tyro
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field, asdict, is_dataclass, fields
-from typing import LiteralString, List, Dict, Annotated, Optional, Sequence, Literal, Any, Union
+from typing import List, Dict, Optional, Sequence, Literal, Any, Union
 from typing import get_type_hints, get_origin, get_args
 import types
 import time

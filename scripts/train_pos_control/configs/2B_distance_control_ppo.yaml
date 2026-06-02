@@ -27,7 +27,7 @@ stat:
   final_distance: null
   alignment: "center"
   distance_range: [0.1, 0.9]       # Min distance is set empirically, max distance used to set a small margin of 0.05 lambda at the domain edges
-  dnorm: 0.5
+  dnorm: 0.20
   apply_termination: true
   position_tolerance: 0.01
   positive_terminal_reward: 50
@@ -65,7 +65,7 @@ net:
 
 hpar:
   num_envs: 1024
-  envs_per_block: 16
+  envs_per_block: 32
   rollout_steps: 32
   num_update_epochs: 16
   mini_batch_size: 512

@@ -19,7 +19,7 @@ class CUDAOpts:
     backend: Literal["numba", "cupy"] = "numba"
     variant: Literal["shared", "warp"] = "warp"
     cuda_mode: Literal["release"] = "release"
-    max_registers: int = 192
+    max_registers: int = 128
     kernel_steps: int = 4096
     max_kernel_steps: int = int(1e6)
     cupy_compiler: Literal["nvrtc", "nvcc"] = "nvrtc"
