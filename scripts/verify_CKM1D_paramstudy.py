@@ -141,6 +141,34 @@ SCENE_DICT = {
         T  = 500,
         sweep_param="PA",
         sweep_axis=0
+    ),
+    # ------ Large-scale systems ------
+    "5B_PA1_TEST" : create_scene(
+        R0 = (np.linspace(10.0, 60.0, 5))[:, np.newaxis].tolist(),
+        PA = [[0.0, 1.0], [0.1]],
+        FR = [[25.0], [50.0]],
+        X0 = (np.linspace(0, 0.10, 5))[:, np.newaxis].tolist(),
+        T = 20,
+        sweep_param="PA",
+        sweep_axis=0
+    ),
+    "16B_PA1_TEST" : create_scene(
+        R0 = (np.linspace(10.0, 60.0, 16))[:, np.newaxis].tolist(),
+        PA = [[0.0, 1.0], [0.1]],
+        FR = [[25.0], [50.0]],
+        X0 = (np.linspace(0, 0.25, 16))[:, np.newaxis].tolist(),
+        T = 20,
+        sweep_param="PA",
+        sweep_axis=0
+    ),
+    "32B_PA1_TEST" : create_scene(
+        R0 = (np.linspace(10.0, 60.0, 32))[:, np.newaxis].tolist(),
+        PA = [[0.0, 1.0], [0.1]],
+        FR = [[25.0], [50.0]],
+        X0 = (np.linspace(0.0, 0.5, 32))[:, np.newaxis].tolist(),
+        T = 20,
+        sweep_param="PA",
+        sweep_axis=0
     )
 }
 
@@ -275,7 +303,7 @@ if __name__ == "__main__":
                         kernel_steps=2048,
                         sync_to_host=True,
                         benchmark=True,
-                        debug=True)
+                        debug=False)
     end_time = time.time()
     print(f"The simulation time was {end_time - start_time:0.2f} s")
 

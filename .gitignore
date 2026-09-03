@@ -8,4 +8,9 @@
 *.zarr/*
 *.zarr
 *.th
+*.txt
 **/runs/*
+
+*.pdf
+*.png
+!docs/figures/*

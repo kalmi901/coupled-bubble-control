@@ -57,10 +57,10 @@ SCENE_DICT = {
 class Config:
     scene_id: Literal["2-a", "2-b", "2-c", "2-d", "2-e", "2-f", "3-a", "3-b", "4-a", "4-b"] = "4-a"
     num_systems: int = 4096
-    systems_per_block: int = 64
+    systems_per_block: int = 32
     backend: Literal["numba", "cupy"] = "numba"
     variant: Literal["shared", "warp"] = "warp"
-    num_dense_output: int = 4096
+    num_dense_output: int = 2048
     main_system: int = 0
     plot_results: bool = True
     save_results: bool = True
@@ -129,7 +129,7 @@ if __name__ == "__main__":
 
     # RUN SIMULATIONS
     start_time = time.time()
-    model.solve(sync_to_host=True)
+    model.solve(sync_to_host=True, max_steps=int(1e6), kernel_steps=8192)
     end_time = time.time()
     print(f"The simulation time was {end_time - start_time:0.2f} s")
 
